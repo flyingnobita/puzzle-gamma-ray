@@ -1,6 +1,6 @@
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
-use ark_mnt4_753::{Fr as MNT4BigFr, MNT4_753};
+use ark_mnt4_753::{Fr as MNT4BigFr, MNT4_753}; // degree 4 over 753 bit prime field, similar to [MNT6_753](https://docs.rs/ark-mnt6-753/latest/ark_mnt6_753/)
 use ark_mnt6_753::G1Affine;
 use ark_mnt6_753::{constraints::G1Var, Fr as MNT6BigFr};
 
@@ -95,7 +95,7 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
 
         let secret = FpVar::new_witness(ark_relations::ns!(cs, "secret"), || Ok(self.secret))?;
         let secret_bits = secret.to_bits_le()?;
-        Boolean::enforce_smaller_or_equal_than_le(&secret_bits, MNT6BigFr::MODULUS)?;
+        Boolean::enforce_smaller_or_equal_than_le(&secret_bits, MNT6BigFr::MODULUS)?; // using MNT6 instead of MNT4
 
         let nullifier = <LeafHG as CRHSchemeGadget<LeafH, _>>::OutputVar::new_input(
             ark_relations::ns!(cs, "nullifier"),
@@ -143,24 +143,21 @@ fn main() {
 
     let leaves: Vec<Vec<MNT4BigFr>> = from_file("./leaves.bin");
     let leaked_secret: MNT4BigFr = from_file("./leaked_secret.bin");
-    let (pk, vk): (
-        <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::ProvingKey,
-        <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::VerifyingKey,
-    ) = from_file("./proof_keys.bin");
 
     let leaf_crh_params = poseidon_parameters::poseidon_parameters();
-    let i = 2;
     let two_to_one_crh_params = leaf_crh_params.clone();
 
     let nullifier = <LeafH as CRHScheme>::evaluate(&leaf_crh_params, vec![leaked_secret]).unwrap();
 
     let tree = MntMerkleTree::new(
-        &leaf_crh_params,
+        &leaf_crh_params, // leaf_hash_param and two_to_one_hash_param
         &two_to_one_crh_params,
         leaves.iter().map(|x| x.as_slice()),
     )
     .unwrap();
     let root = tree.root();
+
+    let i = 2;
     let leaf = &leaves[i];
 
     let tree_proof = tree.generate_proof(i).unwrap();
@@ -176,15 +173,19 @@ fn main() {
     let c = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
         two_to_one_params: two_to_one_crh_params.clone(),
-        root: root.clone(),
+        root,
         proof: tree_proof.clone(),
-        nullifier: nullifier.clone(),
-        secret: leaked_secret.clone(),
+        nullifier,
+        secret: leaked_secret,
     };
 
+    let (pk, vk): (
+        <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::ProvingKey,
+        <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::VerifyingKey,
+    ) = from_file("./proof_keys.bin");
     let proof = Groth16::<MNT4_753>::prove(&pk, c.clone(), rng).unwrap();
 
-    assert!(Groth16::<MNT4_753>::verify(&vk, &vec![root, nullifier], &proof).unwrap());
+    assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier], &proof).unwrap());
 
     /* Enter your solution here */
 
@@ -198,15 +199,15 @@ fn main() {
     let c2 = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
         two_to_one_params: two_to_one_crh_params.clone(),
-        root: root.clone(),
+        root,
         proof: tree_proof.clone(),
-        nullifier: nullifier_hack.clone(),
-        secret: secret_hack.clone(),
+        nullifier: nullifier_hack,
+        secret: secret_hack,
     };
 
     let proof = Groth16::<MNT4_753>::prove(&pk, c2.clone(), rng).unwrap();
 
-    assert!(Groth16::<MNT4_753>::verify(&vk, &vec![root, nullifier_hack], &proof).unwrap());
+    assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier_hack], &proof).unwrap());
 }
 
 const PUZZLE_DESCRIPTION: &str = r"
